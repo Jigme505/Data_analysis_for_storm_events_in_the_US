@@ -1,0 +1,232 @@
+# Evaluating the Economic Consequences and Casualties of Storm Events in The United States
+
+
+
+
+#### Author: Jigme Norbu
+
+## Synopsis
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+In this project, I explore the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+I try to identify the events with most casualties over the period of 1950 to 2011: first the aggregate total for U.S. as a whole and then, for all the states with more than 1000 casualties.After that, I identify the events with highest economic damages for the same time period for U.S as a whole.  
+
+
+
+
+## Data Processing
+
+
+#### Loading the data
+
+First, lets begin by setting the working directory and loading the data into R. As per fucntion specification, we are able to read a bzip2 compressed file just by read.csv() or read.table() function.
+
+```{r, message=F, warning=F, cache=T}
+setwd("C:/Users/Jigme505/Desktop/DATA SCIENCE COURSEs/5 - Reproducible Research/")
+Storm_df <- read.csv("PA_2/repdata-data-StormData.csv.bz2")
+```
+
+#### Dealing with data for health consequences of the event types
+
+First, in order to answer the question about which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health, we need to take a subset (injuries_df) of the data set. For this, I use the aggregate() function with the FUN = sum, which sums up the number of casualties according to the given list. 
+
+```{r, message=F, warning=F, cache=T}
+injuries_df <- aggregate(Storm_df$INJURIES, 
+              list(fatalities = Storm_df$FATALITIES, state = Storm_df$STATE,
+              event_type = Storm_df$EVTYPE, begin_date = Storm_df$BGN_DATE), sum)
+```
+
+
+
+I then create a new variable called tot_health_damage which is just a sum of cases for number of fatalities and number of injuries. I then use the aggregate() function again to sum up this new variable by different event type.
+
+```{r, message=F, warning=F}
+injuries_df$tot_health_damage <- injuries_df$fatalities + injuries_df$x
+
+## sum by events
+health_dmg_df <- aggregate(injuries_df$tot_health_damage, list(event_type = injuries_df$event_type), sum)
+
+## changing to character 
+health_dmg_df$event_type <- as.character(health_dmg_df$event_type)
+
+## changing the column names
+names(health_dmg_df) <- paste(c("event_type", "total_h_dmg"))
+
+## checking which event type is has the highest casualties. 
+health_dmg_df[health_dmg_df$total_h_dmg==max(health_dmg_df$total_h_dmg),]
+```
+
+
+
+Since I am not interested in all 985 diferent types of events but rather the most harmful events, I decide to take the top 10 harmful events. For this I am using the arrange () function from dplyr package.
+```{r, message=F, warning=F}
+require(dplyr)
+## taking the top 10 highest injuries by event_types 
+top_10 <- head(arrange(health_dmg_df, desc(total_h_dmg)),n=10)
+
+names(top_10) <- paste(c("Event Type", "Casualties"))
+
+```
+
+
+
+Similarly, for the State level analysis, I use aggregate() function to sum up the total casualties for each state and then only keep the ones that have more than 1000 casualties (for the sake of plotting).
+
+```{r, message=F, warning=F}
+health_dmg_df_by_state <- aggregate(injuries_df$tot_health_damage, list(state=injuries_df$state, event_type = injuries_df$event_type), sum)
+names(health_dmg_df_by_state) <- paste(c("state", "Event", "Casualties"))
+
+## selecting only states with more than 1000 casualties from 1950 to 2011
+only_damaged_st <- subset(health_dmg_df_by_state, Casualties>1000)
+```
+
+
+
+
+#### Dealing with data for economic consequences
+
+For this part, I subset the data using the aggregate function to keep the variables that are of interest (in this case, we have columns property damage and crop damage). However, the problem with this data set was that the units for the damages were in different columns than the dollar amount column. So, I make use of the for loops and conditions to create new variables with the correct dollar amount with same units for both crop damage and property damage variables.
+
+```{r, message=F, warning=F, cache=T}
+economic_df <-  aggregate(Storm_df$PROPDMG, 
+                list(Prop_unit = Storm_df$PROPDMGEXP, crop_dmg = Storm_df$CROPDMG,
+                crop_unit = Storm_df$CROPDMGEXP, event_type = Storm_df$EVTYPE,
+                begin_date = Storm_df$BGN_DATE), sum)
+
+## merging the units and the quantity into one column for property damage
+
+economic_df$prop_damage <- NULL
+for(i in 1:length(economic_df$x)) {
+        if (economic_df$Prop_unit[i]=="B"){
+                economic_df$prop_damage[i] <- economic_df$x[i] * 1000000000
+         
+             } else if (economic_df$Prop_unit[i]=="M"){
+                         economic_df$prop_damage[i] <- economic_df$x[i] * 1000000
+         
+                    }else if (economic_df$Prop_unit[i]=="K"){
+                            economic_df$prop_damage[i] <- economic_df$x[i] * 1000
+    
+                          }else if (economic_df$Prop_unit[i]=="H"){
+                                 economic_df$prop_damage[i] <- economic_df$x[i] * 100
+    
+                               }else{economic_df$prop_damage[i] <- economic_df$x[i]}    
+    
+}
+
+
+## merging the units with amounts for crop damage
+
+economic_df$crop_damage <- NULL
+for(j in 1:length(economic_df$crop_dmg)) {
+      if (economic_df$crop_unit[j]=="M"){
+          economic_df$crop_damage[j] <- economic_df$crop_dmg[j] * 1000000
+          
+          }else if (economic_df$crop_unit[j]=="K"){
+                   economic_df$crop_damage[j] <- economic_df$crop_dmg[j] * 1000
+                   
+                    }else if (economic_df$crop_unit[j]=="H"){
+                             economic_df$crop_damage[j] <- economic_df$crop_dmg[j] * 100
+                             
+                             }else{economic_df$crop_damage[j] <- economic_df$crop_dmg[j]}    
+}
+
+```
+
+
+
+
+Then, I create another variable called 'total_eco_dmg', which is just the sum of property damage and crop damage.
+
+```{r, message=F, warning=F}
+## adding up crop damage and property damage
+economic_df$total_eco_dmg <- economic_df$prop_damage + economic_df$crop_dmg
+```
+
+
+
+
+Like before, I sum up the total damage for each event type using the aggreate() function. I then take the top 20 events (for the same reason as before) with greatest economic consequences. I also make sure to change the unit (to Million Dollars) for the damage amounts for the plotting purposes.
+
+```{r, message=F, warning=F}
+## new df 
+eco_dmg_df<- aggregate(economic_df$total_eco_dmg, list(event_type = economic_df$event_type), sum)
+names(eco_dmg_df) <- paste(c("Event Type", "Total Economic Damage"))
+## chosing the top 20 most harmful events
+top_20 <- head(arrange(eco_dmg_df, desc(`Total Economic Damage`)),n=20)
+    
+top_20$`Total Economic Damage` <- top_20$`Total Economic Damage`/1000000
+```
+
+
+
+
+## Results
+
+Here are the results from my analysis.
+
+#### Figure 1: Top 10 injurious events in the U.s. from 1950 to 2011
+
+
+```{r, message=F, warning=F}
+
+require(ggplot2)
+p1 <- ggplot(top_10, aes(`Event Type`, Casualties)) +
+      geom_bar(stat = "identity",aes(fill= Casualties))+
+      theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+      ggtitle("Top 10 injurious events in the U.S from 1950 to 2011") +
+      ylab("Total Casualties (Persons)") + xlab("Event Type")
+p1
+```
+
+In this plot, I find that historically, tornado has been the most harmful with respect to population health. It has causes at least 5 times more casualties than any other events for the 61 year period.
+
+
+#### Figure 2: States with more than 1000 casualties from 1950 to 2011
+
+```{r, message=F, warning=F}
+
+p2 <- ggplot(only_damaged_st, aes(state, Casualties)) +
+      geom_bar(stat = "identity", aes(fill=Event))+ 
+      theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+      ggtitle("States with more than 1000 casualties from 1950 to 2011") +
+      ylab("Total Casualties (Persons)") + xlab("State")
+
+p2
+```
+
+In this plot, we see that Texas has had the most number of casualties.  Tornadoes account for more than 50% of those casualties and the rest are caused by Flood related events. Similarly, for Missouri more than 50% is credited to tornadoes and the rest to excessive heat related events. Apart from Ohio (which has ice storm related casualties), the rest of the states are all affected by tornado realated events. 
+
+
+
+
+#### Figure 3: Top 20 storm events with greatest economic consequences from 1950 to 2011
+```{r, message=F, warning=F, fig.height=7}
+
+p3 <- ggplot(top_20, aes(`Event Type`, `Total Economic Damage`), height=10) +
+  geom_bar(stat = "identity",aes(fill= `Total Economic Damage`))+
+  theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+  ggtitle("Top 20 economically damaging event types in the U.S from 1950 to 2011") +
+  ylab("Total Damage (Million U.S. Dollars)") + xlab("Event Type")
+
+p3 
+```
+
+In this case, some of the events that stands out are flood, hurricane/typhoon, storm surge, and tornado. But the biggest player is Flood with more than twice the property damages of other events. 
+
+
+
+
+## Conclusion
+
+So from these results, it is clear that some events are more harmful to population health and wealth than others. I hope that this might give some insights to the parties responsible for preparing for severe weather events and help prioritize resources for different types of events accordingly.
+
+
+
+
+
+
+
+
+
+==============================================================================
